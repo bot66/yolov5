@@ -1,10 +1,9 @@
-# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
-"""
-Loss functions
-"""
+# Loss functions
 
 import torch
 import torch.nn as nn
+from torch.nn.functional import smooth_l1_loss
+from torch.nn.modules.loss import SmoothL1Loss
 
 from utils.metrics import bbox_iou
 from utils.torch_utils import is_parallel
@@ -90,15 +89,24 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False):
+    def __init__(self, model, autobalance=False,pruning=False,sr=1e-5):
+        super(ComputeLoss, self).__init__()
         self.sort_obj_iou = False
+        self.pruning=pruning
+        self.l1_lambda = sr
+        self.bn_gamma = []
+        for k, v in model.named_modules():
+            if isinstance(v, nn.BatchNorm2d):
+                self.bn_gamma.append(v.weight)  # no decay
+
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
-
+        # smooth l1 loss
+        self.l1_gamma = nn.SmoothL1Loss(reduction="sum")
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
         self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
 
@@ -110,7 +118,7 @@ class ComputeLoss:
         det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
         self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
         self.ssi = list(det.stride).index(16) if autobalance else 0  # stride 16 index
-        self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
+        self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, model.gr, h, autobalance
         for k in 'na', 'nc', 'nl', 'anchors':
             setattr(self, k, getattr(det, k))
 
@@ -126,7 +134,7 @@ class ComputeLoss:
 
             n = b.shape[0]  # number of targets
             if n:
-                ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+                ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets # [x,y,w,h,obj,cls,...]
 
                 # Regression
                 pxy = ps[:, :2].sigmoid() * 2. - 0.5
@@ -156,15 +164,25 @@ class ComputeLoss:
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.detach().item()
-
         if self.autobalance:
+
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
         lobj *= self.hyp['obj']
         lcls *= self.hyp['cls']
         bs = tobj.shape[0]  # batch size
 
-        return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
+        if self.pruning:
+            lgamma = torch.zeros(1, device=device)
+            gammas = torch.cat(self.bn_gamma)
+            _ = torch.zeros_like(gammas)
+            lgamma += self.l1_lambda*self.l1_gamma(gammas,_)
+            loss = lbox + lobj + lcls + lgamma
+            return loss * bs, torch.cat((lbox, lobj, lcls, lgamma,loss)).detach() # batchsize scaled loss 
+
+        else:
+            loss = lbox + lobj + lcls
+            return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach() # batchsize scaled loss 
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
@@ -185,21 +203,33 @@ class ComputeLoss:
             gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
 
             # Match targets to anchors
-            t = targets * gain
+            # [image_id, cls, x, y, w, h, anchor_id]
+            t = targets * gain # mapping bbox cordinates on featuremap
             if nt:
                 # Matches
-                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
-                j = torch.max(r, 1. / r).max(2)[0] < self.hyp['anchor_t']  # compare
+                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio, b_w/p_w, b_h/p_h
+                j = torch.max(r, 1. / r).max(2)[0] < self.hyp['anchor_t']  # compare # (2*sigma(t))^2
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-                t = t[j]  # filter
+                t = t[j]  # filter # remove bboxes that will not generate  
 
                 # Offsets
+                # top-left, bottom-left, top-right, bottom-right
+                # j:where x decimal < 0.5 and value > 1
+                # k:where y decimal < 0.5 and value > 1
+                # l:where x decimal > 0.5 and value < gridsize-1
+                # m:where x decimal > 0.5 and value < gridsize-1
+
                 gxy = t[:, 2:4]  # grid xy
                 gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = ((gxy % 1. < g) & (gxy > 1.)).T
-                l, m = ((gxi % 1. < g) & (gxi > 1.)).T
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T #x,y
+                l, m = ((gxi % 1. < g) & (gxi > 1.)).T #x,y
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
-                t = t.repeat((5, 1, 1))[j]
+                t = t.repeat((5, 1, 1))[j] # duplicate anchor generated bboxes, multiple grid cells response for one GT
+                                           # this may guarantee higher Recall
+                                           # Normal:   Duplicate:
+                                           #| | | |    | |x| |
+                                           #| |x| |    |x|x|x|
+                                           #| | | |    | |x| |
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
             else:
                 t = targets[0]

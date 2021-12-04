@@ -1,6 +1,4 @@
-# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
-"""
-PyTorch Hub models https://pytorch.org/hub/ultralytics_yolov5/
+"""YOLOv5 PyTorch Hub models https://pytorch.org/hub/ultralytics_yolov5/
 
 Usage:
     import torch
@@ -27,14 +25,13 @@ def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbo
     """
     from pathlib import Path
 
-    from models.yolo import Model
-    from models.experimental import attempt_load
+    from models.yolo import Model, attempt_load
     from utils.general import check_requirements, set_logging
-    from utils.downloads import attempt_download
+    from utils.google_utils import attempt_download
     from utils.torch_utils import select_device
 
-    file = Path(__file__).resolve()
-    check_requirements(exclude=('tensorboard', 'thop', 'opencv-python'))
+    file = Path(__file__).absolute()
+    check_requirements(requirements=file.parent / 'requirements.txt', exclude=('tensorboard', 'thop', 'opencv-python'))
     set_logging(verbose=verbose)
 
     save_dir = Path('') if str(name).endswith('.pt') else file.parent
@@ -118,11 +115,9 @@ if __name__ == '__main__':
     import cv2
     import numpy as np
     from PIL import Image
-    from pathlib import Path
 
     imgs = ['data/images/zidane.jpg',  # filename
-            Path('data/images/zidane.jpg'),  # Path
-            'https://ultralytics.com/images/zidane.jpg',  # URI
+            'https://github.com/ultralytics/yolov5/releases/download/v1.0/zidane.jpg',  # URI
             cv2.imread('data/images/bus.jpg')[:, :, ::-1],  # OpenCV
             Image.open('data/images/bus.jpg'),  # PIL
             np.zeros((320, 640, 3))]  # numpy

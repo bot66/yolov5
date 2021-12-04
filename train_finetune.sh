@@ -1,0 +1,1 @@
+nohup python train.py --data dataset/data.yaml --hyp data/hyps/hyp.finetune.yaml --cfg pruned_net/prune_0.3_pruned_net.yaml --epochs 30  --name yolov5s_coco-person_slimming_finetune_0.3 --weights pruned_net/prune_0.3_pruned_net.pt  --batch-size 32 > log.txt 2>&1 &
