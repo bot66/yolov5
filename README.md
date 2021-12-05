@@ -9,13 +9,12 @@ Default yolov5s.
 ## Results
 
 
-|Network |Sparsity Rate |mAP<sup>val (without finetune)<br>0.5 |mAP<sup>val(finetune)<br>0.5 |mAP<sup>val(finetune)<br>0.5:0.95 |Speed<br><sup>RTX3070 (ms) | |params<br><sup>(M) |
-|---                    |---  |---      |---      |---      |---|---   |---
-|yolov5s     | |   |62.1     |45.2    |3.0    |   |7.0  |
-|yolov5s 30% pruned     |1e-5  |10.5     |62.4     |44.8    |2.7     |   |3.5  |
-|yolov5s 50% pruned|1e-5  |0     |58.8    |41.5     |2.3     |   |1.8  |
-|yolov5s 70% pruned|1e-5  |0    |46.6    |30.5    |1.8 |   |0.7   |
-
+|Network |Sparsity Rate |mAP<sup>val (without finetune)<br>0.5 |mAP<sup>val(finetune)<br>0.5 |mAP<sup>val(finetune)<br>0.5:0.95 |Speed<br><sup>RTX3070 (ms) |params<br><sup>(M) |
+|---               |---   |---      |---      |---     |---    |---   
+|yolov5s           |      |         |62.1     |45.2    |3.0    |7.0  |
+|yolov5s 30% pruned|1e-5  |10.5     |62.4     |44.8    |2.7    |3.5  |
+|yolov5s 50% pruned|1e-5  |0        |58.8     |41.5    |2.3    |1.8  |
+|yolov5s 70% pruned|1e-5  |0        |46.6     |30.5    |1.8    |0.7  |
 
 
 ## Usage
