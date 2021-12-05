@@ -5,7 +5,8 @@ import yaml
 import shutil
 from tqdm import tqdm
 
-# convert MSCOCO json to yolov5 label format
+# convert MSCOCO json to yolov5 label format.
+# create person only MSCOCO dataset.
 
 def create_dirs(dirs):
     for d in dirs:
