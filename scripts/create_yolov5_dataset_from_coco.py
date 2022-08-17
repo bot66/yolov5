@@ -45,7 +45,7 @@ def normalize_bbox(img_dim,bbox):
     return norm_bbox
 
 def write_result(dirs,res, tag = None):
-    assert tag, "tag not being anounced !"
+    assert tag, "tag is not specified."
     
     if tag == "train":
         out_dir = dirs[2]
